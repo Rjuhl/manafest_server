@@ -12,3 +12,7 @@ export interface ISocketToUserMap {
 export interface IUserToRoomMap {
   [key: string]: GameRoom;
 }
+
+export interface IRoomToRoom {
+  [key: string]: GameRoom;
+}

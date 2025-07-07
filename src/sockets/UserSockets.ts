@@ -1,5 +1,5 @@
 import { Server, Socket } from 'socket.io'
-import { ISocketToUserMap, IUserToSocketMap, IUserToRoomMap } from '../resources/ISocketMap';
+import { ISocketToUserMap, IUserToSocketMap, IUserToRoomMap, IRoomToRoom } from '../resources/ISocketMap';
 import GameRoom from './GameRoom';
 import INewUserResponse from '../resources/INewUserResponse';
 
@@ -10,7 +10,7 @@ export class UserSockets {
     private socket_to_user: ISocketToUserMap = {};
     private user_to_socket: IUserToSocketMap = {};
     private user_to_room: IUserToRoomMap = {};
-    private rooms: Set<string> = new Set();
+    private rooms: IRoomToRoom = {}
 
     constructor(io: Server) {
         this.io = io
@@ -38,7 +38,7 @@ export class UserSockets {
             });
 
             socket.on('force-disconnect',  () => {
-                const username = this.socket_to_user[socket.id];
+                const username = this.getUser(socket.id);
                 delete this.user_to_socket[username];
                 delete this.socket_to_user[socket.id];
                 console.log(`${username} has fully disconnected.`);
@@ -46,7 +46,7 @@ export class UserSockets {
             });
 
             socket.on('disconnect', () => {
-               const username = this.socket_to_user[socket.id];
+               const username = this.getUser(socket.id);
                 setTimeout(() => {
                     if (this.user_to_socket[username] && this.user_to_socket[username].id === socket.id) {
                         delete this.user_to_socket[username];
@@ -60,12 +60,13 @@ export class UserSockets {
 
             // Handle game creation
             socket.on('create-game', (data, callback) => {
+                console.log(data.gameId)
                 if (data.gameId in this.rooms) {
                     callback({status: 400, message: "game id already in use "});
                 } else {
                     const user = this.getUser(socket.id);
-                    this.rooms.add(data.gameId);
                     this.user_to_room[user] = new GameRoom(data.gameId, this);
+                    this.rooms[data.gameId] = this.user_to_room[user];
                     this.user_to_room[user].addPlayer(user, true);
                     socket.join(data.gameId);
                     callback({ status: 200, message: "game created" });
@@ -75,6 +76,7 @@ export class UserSockets {
             socket.on('join-game', (data, callback) => {
                 if (data.gameId in this.rooms) {
                     const user = this.getUser(socket.id);
+                    this.user_to_room[user] = this.rooms[data.gameId];
                     this.user_to_room[user].addPlayer(user, false);
                     socket.join(data.gameId);
                     callback({ status: 200, message: "game joined" });
@@ -98,9 +100,8 @@ export class UserSockets {
         if (username in this.user_to_room) {
             const game = this.user_to_room[username];
             game.removePlayer(username);
-            this.getSocket(username).leave(game.getId())
             if (game.getHeadCount() <= 0) {
-                this.rooms.delete(game.getId());
+                delete this.rooms[game.getId()];
             };
         };
     };

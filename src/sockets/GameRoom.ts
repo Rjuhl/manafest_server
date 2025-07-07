@@ -10,6 +10,8 @@ export default class GameRoom {
     private ledger: string[] = [];
     private players: { [key: string]: IPlayerData } = {};
     private user_sockets: UserSockets;
+    private last_cards_drawn: number[] = [];
+    private cards: Set<number> = new Set(Array.from({ length: 28 }, (_, i) => i + 1));
 
     // Bidding state
     private bidding = false;
@@ -20,6 +22,7 @@ export default class GameRoom {
         this.user_sockets = user_sockets;
 
         this.user_sockets.shareIO().on('connection', (socket: Socket) => {
+
             socket.on('add-gold', (data) => {
                 const user = this.user_sockets.getUser(socket.id);
                 if (user in this.players) {
@@ -41,7 +44,9 @@ export default class GameRoom {
                         for (const key of Object.keys(this.players)) {
                             this.players[key].status = BidStatus.VOTING;
                         };
+                        this.ledger.push("bid started");
                         callback({status: 200, message: "bid started"});
+                        this.user_sockets.shareIO().to(this.roomId).emit('bid-started');
                         this.updateClient();
                     };
                 };
@@ -58,13 +63,30 @@ export default class GameRoom {
                     } else {
                         this.votes.push({ user: user, bid: data.bid });
                         this.players[user].status = BidStatus.VOTED;
+                        this.ledger.push(`${user} made their bid`);
+                        callback({status:200, message: "bid sent"});
                         this.returnBid();
                     }
                 }
             });
 
-            socket.on('get-game-info', (data, callback) => {
-                callback({status:200, data: this.getGameData()});
+            socket.on('pick-hexs', (data) => {
+                console.log('pick hexes received');
+                if (data.picks <= this.cards.size) {
+                    console.log('request valid');
+                    const picks = [];
+                    for (let i = 0; i < data.picks; i++) {
+                        const card = this.pickWithoutReplacement();
+                        picks.push(card);
+                        this.ledger.push(`card: ${card} was drawn`);
+                    }
+                    this.last_cards_drawn = picks;
+                    this.updateClient();
+                }
+            });
+
+            socket.on('get-game-info', () => {
+                this.updateClient();
             });
         });
     };
@@ -90,6 +112,7 @@ export default class GameRoom {
                 Object.entries(this.players)[0][1].isAdmin = true;
             };
 
+            this.ledger.push(`${name} left room ${this.roomId}`);
             this.returnBid();
         };
     };
@@ -101,11 +124,14 @@ export default class GameRoom {
         return  {
             ledger: this.ledger,
             players: this.players,
+            cards_left: this.cards.size,
+            last_cards_drawn: this.last_cards_drawn
         };
     }
 
     private updateClient() {
         this.user_sockets.shareIO().to(this.roomId).emit('game-update', this.getGameData());
+        console.log("updated clients");
     };
 
     private returnBid() {
@@ -120,7 +146,17 @@ export default class GameRoom {
                 this.players[vote.user].status = BidStatus.NONE;
             }
             this.votes = [];
-            this.updateClient();
+            this.user_sockets.shareIO().to(this.roomId).emit('bid-finished');
         };
+        this.updateClient();
     };
+
+    private pickWithoutReplacement() {
+        const values = Array.from(this.cards);
+        if (values.length === 0) return -1;
+        const randomIndex = Math.floor(Math.random() * values.length);
+        const value = values[randomIndex];
+        this.cards.delete(value);
+        return value;
+    }
 }

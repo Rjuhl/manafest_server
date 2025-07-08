@@ -71,9 +71,7 @@ export default class GameRoom {
             });
 
             socket.on('pick-hexs', (data) => {
-                console.log('pick hexes received');
                 if (data.picks <= this.cards.size) {
-                    console.log('request valid');
                     const picks = [];
                     for (let i = 0; i < data.picks; i++) {
                         const card = this.pickWithoutReplacement();
@@ -130,17 +128,16 @@ export default class GameRoom {
     }
 
     private updateClient() {
-        this.user_sockets.shareIO().to(this.roomId).emit('game-update', this.getGameData());
-        console.log("updated clients");
+        this.user_sockets.shareIO().to(this.roomId).emit('game-update', {data: this.getGameData()});
     };
 
     private returnBid() {
-        if (this.bidding === true && this.votes.length === this.getHeadCount()) {
+        if (this.allVoteCast()) {
             this.votes.sort((a, b) => b.bid - a.bid);
             this.bidding = false;
             this.players[this.votes[0].user].gold -= this.votes[0].bid;
             this.ledger.push(`---------- BID RESULTS -----------`);
-            this.ledger.push(`!!!! ${this.votes[0]} Won the Bid !!!!`);
+            this.ledger.push(`!!!! ${this.votes[0].user} Won the Bid !!!!`);
             for (const vote of this.votes) {
                 this.ledger.push(`${vote.user} bid ${vote.bid}`);
                 this.players[vote.user].status = BidStatus.NONE;
@@ -158,5 +155,14 @@ export default class GameRoom {
         const value = values[randomIndex];
         this.cards.delete(value);
         return value;
+    }
+
+    private allVoteCast() {
+        for (const player of Object.values(this.players)) {
+            if (player.status === BidStatus.VOTING) {
+                return false;
+            }
+        }
+        return true && this.bidding;
     }
 }
